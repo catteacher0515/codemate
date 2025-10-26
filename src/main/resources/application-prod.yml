@@ -1,0 +1,21 @@
+spring:
+  datasource: # 1. 必需：生产数据库连接配置
+
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+    # 指向你的生产数据库地址和库名
+    url: jdbc:mysql://your-prod-db-host:3306/prod_user_center?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC
+
+    username: prod_app_user # 使用生产环境专用用户
+    # !! 密码：绝不能硬编码！必须通过外部方式注入 (如环境变量 ${DB_PASSWORD}) !!
+
+    password: ${DB_PASSWORD}
+
+  flyway: # 2. (如果使用 Flyway) 推荐配置
+    baseline-on-migrate: false # 生产环境禁止自动基线化
+    # validate-on-migrate: true # 生产环境建议开启迁移校验
+
+# logging: # 3. (推荐) 配置生产环境的日志级别
+#   level:
+#     root: INFO # 生产环境通常使用 INFO 或 WARN
+#     com.pingyu.usercenterbackend: INFO

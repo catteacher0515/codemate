@@ -1,0 +1,18 @@
+spring:
+  datasource: # 1. 必需：数据库连接配置
+    driver-class-name: com.mysql.cj.jdbc.Driver # 使用新驱动
+    # 替换为你本地开发库的地址、库名、和推荐参数
+
+    url: jdbc:mysql://localhost:3306/codemate_backend_db_dev
+
+    username: codemate_backend_db_dev # 使用专用、非 root 用户
+
+    password: 112233665qw # 使用强密码 (注意版本控制安全)
+
+  flyway: # 2. (如果使用 Flyway) 推荐配置
+    baseline-on-migrate: true # 允许在已有表上初始化
+
+# logging: # 3. (推荐) 配置开发时的日志级别
+#   level:
+#     com.pingyu.usercenterbackend: DEBUG # 将你自己代码的日志设为 DEBUG
+#     org.mybatis: DEBUG # 按需开启 Mybatis SQL 日志
