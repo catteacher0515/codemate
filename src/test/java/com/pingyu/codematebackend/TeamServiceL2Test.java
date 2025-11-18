@@ -1,9 +1,7 @@
 package com.pingyu.codematebackend;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.pingyu.codematebackend.dto.TeamJoinDTO;
-import com.pingyu.codematebackend.dto.TeamSearchDTO;
-import com.pingyu.codematebackend.dto.TeamVO;
+import com.pingyu.codematebackend.dto.*;
 import com.pingyu.codematebackend.model.User;
 import com.pingyu.codematebackend.service.TeamService;
 import com.pingyu.codematebackend.dto.TeamVO;
@@ -150,5 +148,51 @@ public class TeamServiceL2Test {
         // (SOP 4 教训：L2 测试 (@SpringBootTest) 默认 *会回滚* 事务！)
         // (你（侦探）在 DB 中 *不会* 看到 99L 真的加入了 1L，)
         // (除非你添加 @Rollback(false) 注解，但我们不推荐)
+    }
+
+    /**
+     * 【【【 案卷 #005：L2 集成测试 (邀请用户) 】】】
+     * * 目标：测试“邀请”逻辑
+     * * 重点：权限校验 (发起人必须在队内) + 目标查找 (Account -> ID)
+     */
+    @Test
+    void testInviteUser_L2_Debug() {
+        // --- 1. 准备 (Arrange) ---
+
+        long teamId = 1L;
+        long inviterId = 1L;
+        long targetUserId = 2L; // (假设 ID=2 的用户存在且不在队伍中)
+
+        // 【【【 V4.x 修复：确保邀请人真的在队伍中 】】】
+        // (先“作弊”，手动插入一条关系，或者确保 DB 已有)
+        // (更稳妥的方式：在测试中先让 inviter 加入 teamId)
+        // (但为了简单，我们假设你已经在 DB 中手动修复了这条数据，或者换一个已存在的组合)
+
+        // ... (或者，如果 userId=8 是大剑，且他在 teamId=16 中，那就用 8 和 16)
+
+        User inviter = new User();
+        inviter.setId(8L); // (基于 image_de983f.jpg：大剑 ID=8)
+
+        TeamInviteDTO dto = new TeamInviteDTO();
+        dto.setTeamId(16L); // (基于 image_de983f.jpg：队伍 ID=16)
+        dto.setTargetUserAccount("阿巴阿巴"); // (确保 yupi 存在)
+
+        // --- 2. 行动 (Act) ---
+
+        // 【【【 侦探：请在这里设置断点 (Breakpoint) 】】】
+        System.out.println("--- [L2 调试] 准备进入 TeamService.inviteUser ---");
+        System.out.println("--- [L2 调试] 邀请人ID: " + inviter.getId());
+        System.out.println("--- [L2 调试] 目标账号: " + dto.getTargetUserAccount());
+
+        boolean inviteResult = teamService.inviteUser(dto, inviter);
+
+        // --- 3. 断言 (Assert) ---
+        System.out.println("--- [L2 调试] inviteUser 已返回 ---");
+        System.out.println("--- [L2 调试] 邀请结果: " + inviteResult);
+
+        // (断言成功)
+        assert(inviteResult == true);
+
+        System.out.println("--- [L2 调试] inviteUser (案卷 #005) 测试完毕 ---");
     }
 }

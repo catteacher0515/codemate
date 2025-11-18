@@ -5,10 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.CollectionUtils; // [SOP 4] 导入
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.pingyu.codematebackend.common.ErrorCode;
-import com.pingyu.codematebackend.dto.TeamCreateDTO;
-import com.pingyu.codematebackend.dto.TeamJoinDTO;
-import com.pingyu.codematebackend.dto.TeamSearchDTO;
-import com.pingyu.codematebackend.dto.TeamVO;
+import com.pingyu.codematebackend.dto.*;
 import com.pingyu.codematebackend.exception.BusinessException;
 import com.pingyu.codematebackend.model.Tag; // [SOP 4] 导入
 import com.pingyu.codematebackend.model.Team;
@@ -55,6 +52,97 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
 
     @Resource
     private RedissonClient redissonClient;
+
+    /**
+     * 【【【 案卷 #005：V4.x 核心逻辑 (邀请用户) 】】】
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class) // (SOP 2 - 挑战4: 事务)
+    public boolean inviteUser(TeamInviteDTO teamInviteDTO, User loginUser) {
+
+        Long teamId = teamInviteDTO.getTeamId();
+        String targetUserAccount = teamInviteDTO.getTargetUserAccount();
+
+        // --- 1. (SOP 1 - 404) 队伍是否存在 ---
+        Team team = this.getById(teamId);
+        if (team == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "队伍不存在");
+        }
+
+        // --- 2. (SOP 1 - 挑战1) 校验发起人权限 ---
+        // (逻辑：发起人必须是该队伍的成员)
+        QueryWrapper<UserTeamRelation> inviterQw = new QueryWrapper<>();
+        inviterQw.eq("teamId", teamId);
+        inviterQw.eq("userId", loginUser.getId());
+        long isInviterInTeam = userTeamRelationService.count(inviterQw);
+        if (isInviterInTeam <= 0) {
+            throw new BusinessException(ErrorCode.NO_AUTH, "您不是该队伍成员，无权发起邀请");
+        }
+
+        // --- 3. (SOP 1 - 404) 查找目标用户 (Account -> ID) ---
+        // (这是为了配合前端只传账号)
+        QueryWrapper<User> userQw = new QueryWrapper<>();
+        userQw.eq("userAccount", targetUserAccount);
+        User targetUser = userService.getOne(userQw);
+        if (targetUser == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "目标用户不存在");
+        }
+        Long targetUserId = targetUser.getId();
+
+
+        // --- 4. (SOP 2 - 挑战4: Redisson 锁) ---
+        // (锁粒度：锁住这个队伍，防止并发超员)
+        RLock lock = redissonClient.getLock("codemate:join_team:" + teamId);
+
+        try {
+            if (lock.tryLock(10, 5, TimeUnit.SECONDS)) {
+
+                // --- 5. (在锁内部) 原子性校验 (SOP 1 - 挑战 2 & 3) ---
+
+                // (挑战3: 队伍已满)
+                QueryWrapper<UserTeamRelation> countQw = new QueryWrapper<>();
+                countQw.eq("teamId", teamId);
+                long currentMembers = userTeamRelationService.count(countQw);
+                if (currentMembers >= team.getMaxNum()) {
+                    throw new BusinessException(ErrorCode.NULL_ERROR, "队伍已满，无法邀请");
+                }
+
+                // (挑战2: 目标用户重复)
+                // (复用 countQw)
+                // 注意：这里我们检查的是 targetUserId，不是 loginUser
+                QueryWrapper<UserTeamRelation> targetQw = new QueryWrapper<>();
+                targetQw.eq("teamId", teamId);
+                targetQw.eq("userId", targetUserId);
+                long isTargetInTeam = userTeamRelationService.count(targetQw);
+                if (isTargetInTeam > 0) {
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户已在该队伍中");
+                }
+
+                // --- 6. (在锁内部) 写入关系 ---
+                UserTeamRelation relation = new UserTeamRelation();
+                relation.setUserId(targetUserId);
+                relation.setTeamId(teamId);
+                // (默认加入时间)
+                // relation.setJoinTime(new Date());
+
+                boolean saveResult = userTeamRelationService.save(relation);
+                if (!saveResult) {
+                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "邀请失败");
+                }
+
+                return true;
+
+            } else {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "操作频繁");
+            }
+        } catch (InterruptedException e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "系统繁忙");
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
+    }
 
     @Override
     // (SOP 2 - 挑战B: 声明式事务)

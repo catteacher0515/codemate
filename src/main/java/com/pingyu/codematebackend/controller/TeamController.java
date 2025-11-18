@@ -3,10 +3,7 @@ package com.pingyu.codematebackend.controller;
 // (导入所有“作案工具”)
 import com.pingyu.codematebackend.common.BaseResponse;
 import com.pingyu.codematebackend.common.ErrorCode;
-import com.pingyu.codematebackend.dto.TeamCreateDTO;
-import com.pingyu.codematebackend.dto.TeamJoinDTO;
-import com.pingyu.codematebackend.dto.TeamSearchDTO;
-import com.pingyu.codematebackend.dto.TeamVO;
+import com.pingyu.codematebackend.dto.*;
 import com.pingyu.codematebackend.exception.BusinessException; // <-- [修复] 导入异常
 import com.pingyu.codematebackend.model.User;
 import com.pingyu.codematebackend.service.TeamService;
@@ -14,6 +11,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpSession;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
@@ -28,6 +26,37 @@ public class TeamController {
     // 【【 1. 注入“经理” 】】
     @Resource
     private TeamService teamService;
+
+    /**
+     * 【【【 案卷 #005：SOP (邀请用户) 】】】
+     * (SOP 1 契约: POST /api/team/invite)
+     */
+    @PostMapping("/invite")
+    @Operation(summary = "邀请用户加入队伍")
+    public BaseResponse<Boolean> inviteUser(
+            @RequestBody TeamInviteDTO teamInviteDTO,
+            HttpSession session
+    ) {
+        // 1. (校验)
+        if (teamInviteDTO == null || teamInviteDTO.getTeamId() <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        // (校验账号非空)
+        if (StringUtils.isBlank(teamInviteDTO.getTargetUserAccount())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "目标账号不能为空");
+        }
+
+        User loginUser = (User) session.getAttribute("loginUser");
+        if (loginUser == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGGED_IN);
+        }
+
+        // 2. (委托) 呼叫“经理”(Service)
+        boolean result = teamService.inviteUser(teamInviteDTO, loginUser);
+
+        // 3. (返回)
+        return BaseResponse.success(result);
+    }
 
     /**
      * 【【【 案卷 #004：SOP (加入队伍) 】】】

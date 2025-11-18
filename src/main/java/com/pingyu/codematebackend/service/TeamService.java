@@ -1,9 +1,6 @@
 package com.pingyu.codematebackend.service;
 
-import com.pingyu.codematebackend.dto.TeamCreateDTO;
-import com.pingyu.codematebackend.dto.TeamJoinDTO;
-import com.pingyu.codematebackend.dto.TeamSearchDTO;
-import com.pingyu.codematebackend.dto.TeamVO;
+import com.pingyu.codematebackend.dto.*;
 import com.pingyu.codematebackend.model.Team;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.pingyu.codematebackend.model.User;
@@ -46,4 +43,13 @@ public interface TeamService extends IService<Team> {
      * @return boolean (是否加入成功)
      */
     boolean joinTeam(TeamJoinDTO teamJoinDTO, User loginUser);
+
+    /**
+     * 【【【 案卷 #005：SOP (邀请用户) 】】】
+     *
+     * @param teamInviteDTO 包含 teamId 和 targetUserAccount
+     * @param loginUser     当前登录用户 (发起人)
+     * @return boolean
+     */
+    boolean inviteUser(TeamInviteDTO teamInviteDTO, User loginUser);
 }

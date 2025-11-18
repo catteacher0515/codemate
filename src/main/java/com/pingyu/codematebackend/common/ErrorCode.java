@@ -30,7 +30,8 @@ public enum ErrorCode {
     SYSTEM_ERROR(50000, "服务器开小差了，请稍后再试"),
 
     NO_AUTH_ERROR(40000,"无权查看"),
-    FORBIDDEN(40000,"加入队伍错误" ); // <-- 必须有这个兜底
+    FORBIDDEN(40000,"加入队伍错误" ),
+    NULL_ERROR(40000,"队伍已满,无法邀请" ); // <-- 必须有这个兜底
 
 
     /**
