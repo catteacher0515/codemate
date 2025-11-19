@@ -53,6 +53,75 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
     @Resource
     private RedissonClient redissonClient;
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean kickMember(TeamKickDTO teamKickDTO, User loginUser) {
+        // --- 1. 准备情报 ---
+        Long teamId = teamKickDTO.getTeamId();
+        String targetUserAccount = teamKickDTO.getTargetUserAccount();
+
+        // --- 2. (404) 校验队伍是否存在 ---
+        Team team = this.getById(teamId);
+        if (team == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "队伍不存在");
+        }
+
+        // --- 3. (403) 权限校验: 只有队长能踢人 ---
+        if (!team.getUserId().equals(loginUser.getId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH, "无权操作，只有队长可以踢人");
+        }
+
+        // --- 4. (404) 查找目标用户 (Account -> ID) ---
+        QueryWrapper<User> userQw = new QueryWrapper<>();
+        userQw.eq("userAccount", targetUserAccount);
+        User targetUser = userService.getOne(userQw);
+        if (targetUser == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "目标用户不存在");
+        }
+        Long targetUserId = targetUser.getId();
+
+        // --- 5. (403) 边界校验: 不能踢自己 ---
+        if (targetUserId.equals(loginUser.getId())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "不能踢出自己");
+        }
+
+        // --- 6. (Redisson) 上锁: 防止并发导致人数/状态不一致 ---
+        // 关键: 锁的 Key 必须与 "加入队伍" (joinTeam) 保持一致
+        RLock lock = redissonClient.getLock("codemate:join_team:" + teamId);
+        try {
+            // 尝试获取锁 (等待10秒，持有5秒)
+            if (lock.tryLock(10, 5, TimeUnit.SECONDS)) {
+
+                // --- 7. (业务校验) 目标是否真的在队内? ---
+                QueryWrapper<UserTeamRelation> relationQw = new QueryWrapper<>();
+                relationQw.eq("teamId", teamId);
+                relationQw.eq("userId", targetUserId);
+                boolean exists = userTeamRelationService.count(relationQw) > 0;
+
+                if (!exists) {
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, "该用户未加入本队伍");
+                }
+
+                // --- 8. (执行) 移除关系 ---
+                boolean removeResult = userTeamRelationService.remove(relationQw);
+                if (!removeResult) {
+                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "踢出失败 (数据库删除异常)");
+                }
+
+                return true;
+            } else {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "系统繁忙，请稍后重试");
+            }
+        } catch (InterruptedException e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "系统错误");
+        } finally {
+            // 释放锁
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
+    }
+
     /**
      * 【【【 案卷 #007：V4.x 核心逻辑 (更新队伍) 】】】
      */

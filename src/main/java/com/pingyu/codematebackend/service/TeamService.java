@@ -70,4 +70,13 @@ public interface TeamService extends IService<Team> {
      * @return boolean
      */
     boolean updateTeam(TeamUpdateDTO teamUpdateDTO, User loginUser);
+
+    // --- 【案卷 #008 新增】 ---
+    /**
+     * 踢出成员
+     * @param teamKickDTO 踢出参数
+     * @param loginUser 当前操作人
+     * @return boolean
+     */
+    boolean kickMember(TeamKickDTO teamKickDTO, User loginUser);
 }

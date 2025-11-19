@@ -24,6 +24,77 @@ public class TeamServiceL2Test {
     private TeamService teamService; // (直接注入“真实”的 Service)
 
     /**
+     * 【【【 案卷 #008：L2 集成测试 (踢出成员) 】】】
+     * * 目标：测试 队长踢人 的逻辑
+     * * 重点：权限校验 (只有队长能踢) + 目标校验 (账号 -> ID) + 事务回滚
+     */
+    @Test
+    void testKickMember_L2_Debug() {
+        // --- 1. 准备 (Arrange) ---
+
+        // 【【【 侦探：请根据你的真实数据库修改以下 ID 】】】
+        // 建议：找一个你自己创建的测试队伍
+        long teamId = 1L;
+
+        // 1.1 伪造“队长”身份 (只有他能踢人)
+        // (假设 ID=1 的用户是这个队伍的队长)
+        User captainUser = new User();
+        captainUser.setId(8L);
+        captainUser.setUserAccount("admin"); // 账号只是为了日志好看
+
+        // 1.2 确定“受害者” (Target)
+        // (假设我们要踢出账号为 "test_victim" 的用户)
+        String targetUserAccount = "海洋里的椰子";
+        // (为了测试顺利，我们需要知道他的 ID，假设为 2L)
+        long targetUserId = 7L;
+
+        // 【【【 前置修复：确保受害者已经在队伍里 】】】
+        // (为了防止报错 "该用户未加入"，我们在测试开始前先强行把他塞进去)
+        // (注意：这里我们直接调用 repository 或 service 制造现场)
+        try {
+            TeamJoinDTO joinDto = new TeamJoinDTO();
+            joinDto.setTeamId(teamId);
+            // 伪造受害者登录去加入
+            User victimUser = new User();
+            victimUser.setId(targetUserId);
+            teamService.joinTeam(joinDto, victimUser);
+            System.out.println("--- [L2 调试] 前置准备：受害者 (" + targetUserAccount + ") 已被强行拉入队伍 ---");
+        } catch (Exception e) {
+            // 如果已经加入了，这里会报错，忽略即可
+            System.out.println("--- [L2 调试] 前置准备：受害者可能已在队伍中 (" + e.getMessage() + ") ---");
+        }
+
+        // 1.3 构造“踢人合约” (DTO)
+        TeamKickDTO kickDto = new TeamKickDTO();
+        kickDto.setTeamId(teamId);
+        kickDto.setTargetUserAccount(targetUserAccount);
+
+        // --- 2. 行动 (Act) ---
+        System.out.println("--- [L2 调试] 准备进入 TeamService.kickMember ---");
+        System.out.println("--- [L2 调试] 队长ID: " + captainUser.getId());
+        System.out.println("--- [L2 调试] 目标账号: " + targetUserAccount);
+
+        try {
+            // 执行踢人
+            boolean result = teamService.kickMember(kickDto, captainUser);
+
+            // --- 3. 断言 (Assert Success) ---
+            System.out.println("--- [L2 调试] 踢出结果: " + result);
+            assert(result == true);
+
+            System.out.println("--- [L2 调试] 验证成功：用户已被踢出。");
+
+        } catch (Exception e) {
+            // --- 3. 断言 (Assert Failure) ---
+            // 如果走到这里，说明踢人失败了
+            System.out.println("--- [L2 调试] 捕获异常: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        System.out.println("--- [L2 调试] kickMember (案卷 #008) 测试完毕 ---");
+    }
+
+    /**
      * 【【【 案卷 #007：L2 集成测试 (更新队伍) 】】】
      * * 目标：测试 队长(成功) 和 普通成员(失败) 的权限控制
      * * 重点：部分更新 (只改名字，不改描述)

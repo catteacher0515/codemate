@@ -28,6 +28,28 @@ public class TeamController {
     private TeamService teamService;
 
     /**
+     * 【案卷 #008】踢出成员
+     * POST /api/team/kick
+     */
+    @PostMapping("/kick")
+    @Operation(summary = "踢出成员")
+    public BaseResponse<Boolean> kickMember(@RequestBody TeamKickDTO teamKickDTO, HttpSession session) {
+        if (teamKickDTO == null || teamKickDTO.getTeamId() <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        // 1. 获取当前“执法人” (队长)
+        User loginUser = (User) session.getAttribute("loginUser");
+        if (loginUser == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGGED_IN);
+        }
+
+        // 2. 执行踢人
+        boolean result = teamService.kickMember(teamKickDTO, loginUser);
+
+        return BaseResponse.success(result);
+    }
+
+    /**
      * 【【【 案卷 #007：SOP (更新队伍) 】】】
      * (SOP 1 契约: POST /api/team/update)
      */
