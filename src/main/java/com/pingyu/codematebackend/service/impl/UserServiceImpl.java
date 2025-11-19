@@ -54,6 +54,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     private static final String SALT = "pingyu_is_the_best_detective_!@#";
     private ExecutorService executorService = Executors.newFixedThreadPool(10);
 
+    @Override
+    public boolean isAdmin(User user) {
+        // 1. 判空
+        if (user == null || user.getUserRole() == null) {
+            return false;
+        }
+        // 2. 判定 (1 为管理员)
+        return user.getUserRole() == 1;
+    }
+
     /**
      * 【【【 案卷 #3：方案 C (并发 + 批量) 测试 】】】
      * (重构“方案 A”，用于建立“性能基准”)
@@ -91,8 +101,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
         log.info("【方案 A】完成：“串行”导入 1000 个用户，总耗时：{} 毫秒。", cost);
     }
-
-
 
     /**
      * [SOP 重构]

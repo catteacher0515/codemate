@@ -27,6 +27,33 @@ public class TeamController {
     @Resource
     private TeamService teamService;
 
+    /**
+     * 【【【 案卷 #007：SOP (更新队伍) 】】】
+     * (SOP 1 契约: POST /api/team/update)
+     */
+    @PostMapping("/update")
+    @Operation(summary = "更新队伍信息")
+    public BaseResponse<Boolean> updateTeam(
+            @RequestBody TeamUpdateDTO teamUpdateDTO,
+            HttpSession session
+    ) {
+        if (teamUpdateDTO == null || teamUpdateDTO.getId() <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+
+        User loginUser = (User) session.getAttribute("loginUser");
+        if (loginUser == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGGED_IN);
+        }
+
+        // (委托 Service)
+        boolean result = teamService.updateTeam(teamUpdateDTO, loginUser);
+
+        if (!result) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "更新失败");
+        }
+        return BaseResponse.success(true);
+    }
 
 
     /**

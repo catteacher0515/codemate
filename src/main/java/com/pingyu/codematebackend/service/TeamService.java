@@ -61,4 +61,13 @@ public interface TeamService extends IService<Team> {
      * @return boolean
      */
     boolean quitTeam(TeamQuitDTO teamQuitDTO, User loginUser);
+
+    /**
+     * 【【【 案卷 #007：SOP (更新队伍) 】】】
+     *
+     * @param teamUpdateDTO 更新信息
+     * @param loginUser     当前登录用户
+     * @return boolean
+     */
+    boolean updateTeam(TeamUpdateDTO teamUpdateDTO, User loginUser);
 }

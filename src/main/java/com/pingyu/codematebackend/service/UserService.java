@@ -52,4 +52,12 @@ public interface UserService extends IService<User> {
      * @return 脱敏后的 User 对象 (或在实现类中抛出异常)
      */
     User getCurrent(Long safeUserId);
+
+    /**
+     * 是否为管理员
+     *
+     * @param user 用户信息
+     * @return true-是管理员
+     */
+    boolean isAdmin(User user);
 }

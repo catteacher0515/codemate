@@ -2,6 +2,7 @@ package com.pingyu.codematebackend;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.pingyu.codematebackend.dto.*;
+import com.pingyu.codematebackend.model.Team;
 import com.pingyu.codematebackend.model.User;
 import com.pingyu.codematebackend.service.TeamService;
 import com.pingyu.codematebackend.dto.TeamVO;
@@ -21,6 +22,65 @@ public class TeamServiceL2Test {
 
     @Resource
     private TeamService teamService; // (直接注入“真实”的 Service)
+
+    /**
+     * 【【【 案卷 #007：L2 集成测试 (更新队伍) 】】】
+     * * 目标：测试 队长(成功) 和 普通成员(失败) 的权限控制
+     * * 重点：部分更新 (只改名字，不改描述)
+     */
+    @Test
+    void testUpdateTeam_L2_Debug() {
+        // --- 1. 准备 (Arrange) ---
+
+        // 目标队伍 (假设 ID=16)
+        Long teamId = 16L;
+
+        // 准备更新合约 (DTO)
+        TeamUpdateDTO dto = new TeamUpdateDTO();
+        dto.setId(teamId);
+        dto.setName("萍雨侦探事务所 v3.0"); // (我们要修改的新名字)
+        dto.setDescription(null); // (不修改描述，测试“部分更新”特性)
+        // dto.setStatus(2);
+        // dto.setPassword("123456"); // (如果要改为加密，必须传密码)
+
+        User loginUser = new User();
+
+        // 【【【 场景切换：请每次只打开一个场景进行测试 】】】
+
+        // === 场景 A: 队长修改 (成功) ===
+        // (预期：返回 true, 且数据库中名字变了)
+        loginUser.setId(8L); // (大剑 ID=8)
+
+        // === 场景 B: 普通成员修改 (失败) ===
+        // (预期：抛出 NO_AUTH 异常 "您无权修改...")
+        // loginUser.setId(608L); // (成员 ID=608)
+
+
+        // --- 2. 行动 (Act) ---
+        System.out.println("--- [L2 调试] 准备执行 updateTeam ---");
+        System.out.println("--- [L2 调试] 操作人ID: " + loginUser.getId());
+
+        try {
+            boolean result = teamService.updateTeam(dto, loginUser);
+
+            // --- 3. 断言 (Assert Success) ---
+            System.out.println("--- [L2 调试] 更新结果: " + result);
+
+            // (验证部分更新是否生效：查出来看看)
+            Team updatedTeam = teamService.getById(teamId);
+            System.out.println("--- [L2 调试] 更新后名称: " + updatedTeam.getName());
+            System.out.println("--- [L2 调试] 更新后描述: " + updatedTeam.getDescription());
+
+            assert(result == true);
+            assert(updatedTeam.getName().equals("萍雨侦探事务所 v3.0"));
+
+        } catch (Exception e) {
+            // --- 3. 断言 (Assert Failure) ---
+            System.out.println("--- [L2 调试] 捕获异常 (符合预期?): " + e.getMessage());
+        }
+
+        System.out.println("--- [L2 调试] updateTeam 测试完毕 ---");
+    }
 
     /**
      * 【【【 案卷 #006：L2 集成测试 (退出队伍) 】】】

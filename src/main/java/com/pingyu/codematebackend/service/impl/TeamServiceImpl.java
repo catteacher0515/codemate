@@ -54,6 +54,49 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
     private RedissonClient redissonClient;
 
     /**
+     * 【【【 案卷 #007：V4.x 核心逻辑 (更新队伍) 】】】
+     */
+    @Override
+    public boolean updateTeam(TeamUpdateDTO teamUpdateDTO, User loginUser) {
+        if (teamUpdateDTO == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+
+        Long id = teamUpdateDTO.getId();
+        // --- 1. (SOP 1 - 404) 队伍是否存在 ---
+        Team oldTeam = this.getById(id);
+        if (oldTeam == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "队伍不存在");
+        }
+
+        // --- 2. (SOP 2 - 挑战1) 权限校验 ---
+        // (只有队长或者管理员可以修改)
+        // (SOP 2 决策：不信前端，只信 DB 比对)
+        if (!oldTeam.getUserId().equals(loginUser.getId()) && !userService.isAdmin(loginUser)) {
+            throw new BusinessException(ErrorCode.NO_AUTH, "您无权修改该队伍信息");
+        }
+
+        // --- 3. (SOP 1 - 挑战2) 加密状态校验 ---
+        Integer status = teamUpdateDTO.getStatus();
+        // (如果有修改状态，才校验)
+        if (status != null && status == 2) { // 2-加密
+            // (如果改成了加密，必须有密码)
+            if (StringUtils.isBlank(teamUpdateDTO.getPassword())) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "加密队伍必须设置密码");
+            }
+        }
+
+        // --- 4. (SOP 1 - 挑战3) 部分更新 ---
+        Team updateTeam = new Team();
+        BeanUtils.copyProperties(teamUpdateDTO, updateTeam);
+
+        // (MP 的 updateById 默认策略：如果字段为 null，则不更新该字段)
+        // (所以 name, description 等如果没有传，就不会被覆盖为空)
+
+        return this.updateById(updateTeam);
+    }
+
+    /**
      * 【【【 案卷 #006：V4.x 核心逻辑 (退出队伍) 】】】
      */
     @Override
