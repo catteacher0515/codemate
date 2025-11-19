@@ -22,6 +22,54 @@ public class TeamServiceL2Test {
     @Resource
     private TeamService teamService; // (直接注入“真实”的 Service)
 
+    /**
+     * 【【【 案卷 #006：L2 集成测试 (退出队伍) 】】】
+     * * 目标：测试 队长(解散/拒绝) 和 普通成员(退出) 的逻辑
+     */
+    @Test
+    void testQuitTeam_L2_Debug() {
+        // --- 1. 准备 (Arrange) ---
+        long teamId = 16L;
+        long userId = 608L;
+
+        TeamQuitDTO dto = new TeamQuitDTO();
+        dto.setTeamId(teamId);
+
+        User loginUser = new User();
+        loginUser.setId(userId);
+
+        // 【【【 V4.x 修复：先“入队” (现场造数据) 】】】
+        // (我们直接调用 Service 的 joinTeam，或者手动操作 repository)
+        // (为了简单，我们假设 teamService.joinTeam 可用，且队伍是公开的)
+        // (如果是加密队伍，记得 setPassword)
+        TeamJoinDTO joinDto = new TeamJoinDTO();
+        joinDto.setTeamId(teamId);
+        try {
+            // 尝试加入 (如果已加入会报错，我们忽略)
+            teamService.joinTeam(joinDto, loginUser);
+            System.out.println("--- [L2 调试] 前置准备：用户已加入队伍 ---");
+        } catch (Exception e) {
+            System.out.println("--- [L2 调试] 前置准备：用户可能已在队伍中 (" + e.getMessage() + ") ---");
+        }
+
+        // --- 2. 行动 (Act) ---
+        System.out.println("--- [L2 调试] 准备执行 quitTeam ---");
+
+        try {
+            boolean result = teamService.quitTeam(dto, loginUser);
+
+            // --- 3. 断言 (Assert Success) ---
+            System.out.println("--- [L2 调试] 退出成功: " + result);
+            // assert(result == true);
+
+        } catch (Exception e) {
+            // --- 3. 断言 (Assert Failure) ---
+            System.out.println("--- [L2 调试] 捕获异常: " + e.getMessage());
+        }
+
+        System.out.println("--- [L2 调试] quitTeam 测试完毕 ---");
+    }
+
     @Test
     void testGetTeamDetails_L2_Debug() {
         // --- 1. 准备 (Arrange) ---

@@ -52,4 +52,13 @@ public interface TeamService extends IService<Team> {
      * @return boolean
      */
     boolean inviteUser(TeamInviteDTO teamInviteDTO, User loginUser);
+
+    /**
+     * 【【【 案卷 #006：SOP (退出队伍) 】】】
+     *
+     * @param teamQuitDTO 包含 teamId
+     * @param loginUser   当前登录用户
+     * @return boolean
+     */
+    boolean quitTeam(TeamQuitDTO teamQuitDTO, User loginUser);
 }

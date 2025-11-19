@@ -27,6 +27,34 @@ public class TeamController {
     @Resource
     private TeamService teamService;
 
+
+
+    /**
+     * 【【【 案卷 #006：SOP (退出队伍) 】】】
+     * (SOP 1 契约: POST /api/team/quit)
+     */
+    @PostMapping("/quit")
+    @Operation(summary = "退出队伍")
+    public BaseResponse<Boolean> quitTeam(
+            @RequestBody TeamQuitDTO teamQuitDTO,
+            HttpSession session
+    ) {
+        if (teamQuitDTO == null || teamQuitDTO.getTeamId() <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+
+        User loginUser = (User) session.getAttribute("loginUser");
+        if (loginUser == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGGED_IN);
+        }
+
+        // (委托 Service)
+        boolean result = teamService.quitTeam(teamQuitDTO, loginUser);
+
+        return BaseResponse.success(result);
+    }
+
+
     /**
      * 【【【 案卷 #005：SOP (邀请用户) 】】】
      * (SOP 1 契约: POST /api/team/invite)

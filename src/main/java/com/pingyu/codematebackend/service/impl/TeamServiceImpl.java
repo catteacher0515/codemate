@@ -54,6 +54,83 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
     private RedissonClient redissonClient;
 
     /**
+     * 【【【 案卷 #006：V4.x 核心逻辑 (退出队伍) 】】】
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class) // (SOP 2 - 挑战3: 事务)
+    public boolean quitTeam(TeamQuitDTO teamQuitDTO, User loginUser) {
+
+        Long teamId = teamQuitDTO.getTeamId();
+        Long userId = loginUser.getId();
+
+        // --- 1. (SOP 1 - 404) 队伍是否存在 ---
+        Team team = this.getById(teamId);
+        if (team == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "队伍不存在");
+        }
+
+        // --- 2. (SOP 1 - 挑战1) 校验是否已加入 ---
+        QueryWrapper<UserTeamRelation> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("teamId", teamId);
+        queryWrapper.eq("userId", userId);
+        UserTeamRelation userTeamRelation = userTeamRelationService.getOne(queryWrapper);
+
+        if (userTeamRelation == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "您未加入该队伍");
+        }
+
+        // --- 3. (SOP 2 - 挑战3: Redisson 锁) ---
+        // (锁粒度：锁住队伍，防止并发加入/退出导致人数计算错误)
+        RLock lock = redissonClient.getLock("codemate:join_team:" + teamId);
+
+        try {
+            if (lock.tryLock(10, 5, TimeUnit.SECONDS)) {
+
+                // --- 4. (在锁内部) 统计当前人数 ---
+                QueryWrapper<UserTeamRelation> countQw = new QueryWrapper<>();
+                countQw.eq("teamId", teamId);
+                long count = userTeamRelationService.count(countQw);
+
+                // --- 5. (SOP 1 - 挑战2) 队长逻辑分支 ---
+                if (team.getUserId().equals(userId)) {
+                    // 是队长
+                    if (count == 1) {
+                        // 场景 1: 独狼 -> 解散队伍
+                        // A. 删除关系
+                        userTeamRelationService.removeById(userTeamRelation.getId());
+                        // B. 删除队伍
+                        boolean removeTeamResult = this.removeById(teamId);
+                        if (!removeTeamResult) {
+                            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "解散队伍失败");
+                        }
+                    } else {
+                        // 场景 2: 还有队员 -> 拒绝退出
+                        throw new BusinessException(ErrorCode.FORBIDDEN, "您是队长，队伍中还有其他成员，请先转让队长权限");
+                    }
+                } else {
+                    // --- 6. 普通成员逻辑 ---
+                    // 直接退出 (删除关系)
+                    boolean removeRelationResult = userTeamRelationService.removeById(userTeamRelation.getId());
+                    if (!removeRelationResult) {
+                        throw new BusinessException(ErrorCode.SYSTEM_ERROR, "退出队伍失败");
+                    }
+                }
+
+                return true;
+
+            } else {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "操作频繁");
+            }
+        } catch (InterruptedException e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "系统繁忙");
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
+    }
+
+    /**
      * 【【【 案卷 #005：V4.x 核心逻辑 (邀请用户) 】】】
      */
     @Override
