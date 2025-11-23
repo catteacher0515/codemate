@@ -1,14 +1,17 @@
 package com.pingyu.codematebackend.controller;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.pingyu.codematebackend.common.BaseResponse;
 import com.pingyu.codematebackend.common.ErrorCode;
 import com.pingyu.codematebackend.dto.ChatRequest;
 import com.pingyu.codematebackend.dto.ChatVO;
 import com.pingyu.codematebackend.exception.BusinessException;
+import com.pingyu.codematebackend.model.PrivateChat;
 import com.pingyu.codematebackend.model.TeamChat;
 import com.pingyu.codematebackend.model.User;
 import com.pingyu.codematebackend.model.UserTeamRelation;
+import com.pingyu.codematebackend.service.PrivateChatService;
 import com.pingyu.codematebackend.service.TeamChatService;
 import com.pingyu.codematebackend.service.UserService;
 import com.pingyu.codematebackend.service.UserTeamRelationService;
@@ -23,6 +26,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -45,6 +49,9 @@ public class ChatController {
     // 【核心装备】消息广播器
     @Resource
     private SimpMessagingTemplate messagingTemplate;
+
+    @Resource
+    private PrivateChatService privateChatService; // 【新增】
 
     /**
      * 【HTTP】获取历史消息
@@ -123,6 +130,94 @@ public class ChatController {
 
         // 目标频道: /topic/team/{teamId}
         String destination = "/topic/team/" + teamId;
+        messagingTemplate.convertAndSend(destination, chatVO);
+    }
+    /**
+     * 获取私聊历史
+     */
+    /**
+     * 获取私聊历史
+     */
+    @GetMapping("/chat/private/history")
+    public BaseResponse<List<ChatVO>> getPrivateHistory(@RequestParam Long targetUserId, HttpServletRequest request) {
+        User loginUser = (User) request.getSession().getAttribute("loginUser");
+        if (loginUser == null) throw new BusinessException(ErrorCode.NOT_LOGGED_IN);
+
+        Long myId = loginUser.getId();
+        Long targetId = targetUserId;
+
+        // 【重构：LambdaQueryWrapper】
+        // 翻译：(sender_id = 我 AND receiver_id = 他) OR (sender_id = 他 AND receiver_id = 我)
+        LambdaQueryWrapper<PrivateChat> qw = new LambdaQueryWrapper<>();
+        qw.and(wrapper -> wrapper
+                .eq(PrivateChat::getSenderId, myId).eq(PrivateChat::getReceiverId, targetId)
+                .or()
+                .eq(PrivateChat::getSenderId, targetId).eq(PrivateChat::getReceiverId, myId)
+        );
+
+        // 按时间升序（旧 -> 新）
+        qw.orderByAsc(PrivateChat::getCreateTime);
+
+        List<PrivateChat> chatList = privateChatService.list(qw);
+
+        // 转换 VO (保持原有逻辑)
+        List<ChatVO> voList = chatList.stream().map(chat -> {
+            User sender = userService.getById(chat.getSenderId());
+            ChatVO vo = new ChatVO();
+            BeanUtils.copyProperties(chat, vo);
+            if (sender != null) {
+                vo.setUsername(sender.getUsername());
+                vo.setUserAvatar(sender.getAvatarUrl());
+            }
+            vo.setUserId(chat.getSenderId());
+            // 判断是否是“我”发的消息
+            vo.setIsMine(chat.getSenderId().equals(myId));
+            // 安全地格式化时间
+            if (chat.getCreateTime() != null) {
+                vo.setCreateTime(chat.getCreateTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            }
+            return vo;
+        }).collect(Collectors.toList());
+
+        return BaseResponse.success(voList);
+    }
+
+    /**
+     * 发送私聊消息
+     * 目标地址: /app/chat/private
+     */
+    @MessageMapping("/chat/private")
+    public void sendPrivateMessage(@Payload ChatRequest chatRequest, SimpMessageHeaderAccessor headerAccessor) {
+        Map<String, Object> sessionAttributes = headerAccessor.getSessionAttributes();
+        User loginUser = (User) sessionAttributes.get("loginUser");
+        if (loginUser == null) return;
+
+        Long targetUserId = chatRequest.getTargetUserId(); // 需在 DTO 中添加此字段
+        String content = chatRequest.getContent();
+
+        // 1. 入库
+        PrivateChat privateChat = new PrivateChat();
+        privateChat.setSenderId(loginUser.getId());
+        privateChat.setReceiverId(targetUserId);
+        privateChat.setContent(content);
+        privateChat.setCreateTime(LocalDateTime.now());
+        privateChatService.save(privateChat);
+
+        // 2. 广播 (双向通知)
+        // 我们生成一个唯一的“会话ID”：minId_maxId
+        // 例如 1 和 2 聊天，频道就是 /topic/private/1_2
+        long minId = Math.min(loginUser.getId(), targetUserId);
+        long maxId = Math.max(loginUser.getId(), targetUserId);
+        String destination = "/topic/private/" + minId + "_" + maxId;
+
+        ChatVO chatVO = new ChatVO();
+        BeanUtils.copyProperties(privateChat, chatVO);
+        chatVO.setUserId(loginUser.getId());
+        chatVO.setUsername(loginUser.getUsername());
+        chatVO.setUserAvatar(loginUser.getAvatarUrl());
+        chatVO.setIsMine(true); // 这里的 isMine 仅对发送者有效，接收者在前端会重新判断
+        chatVO.setCreateTime(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+
         messagingTemplate.convertAndSend(destination, chatVO);
     }
 

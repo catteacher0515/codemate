@@ -60,4 +60,11 @@ public interface UserService extends IService<User> {
      * @return true-是管理员
      */
     boolean isAdmin(User user);
+
+    /**
+     * 根据ID获取脱敏后的用户信息（包含标签）
+     * @param id 用户ID
+     * @return 脱敏用户
+     */
+    User getSafetyUserById(Long id);
 }

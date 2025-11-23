@@ -32,13 +32,6 @@ mybatis-plus:
   # classpath: 指的是 src/main/resources/ 目录
   mapper-locations: classpath:mapper/*.xml
 
-# logging: # (推荐) 配置开发时的日志级别, 你可以取消注释来开启
-#   level:
-#     # 将你自己代码的日志设为 DEBUG
-#     com.pingyu.codematebackend: DEBUG
-#     # 按需开启 Mybatis SQL 日志
-#     org.mybatis: DEBUG
-
 # 阿里云 OSS 配置 (已添加到 .gitignore)
 aliyun:
   oss:
@@ -50,5 +43,13 @@ aliyun:
     access-key-secret: P8xpOPCRMznPElFsUFYOmvrV8iyQae
     # 你的 Bucket 名称
     bucket-name: pingyu-storage
+
+logging:
+  level:
+    # 1. 开启你自己的业务代码日志 (DEBUG 级别可以看到更多流程信息)
+    com.pingyu.codematebackend: DEBUG
+    # 2. 【核心】开启 MyBatis SQL 日志 (这是透视数据库交互的关键)
+    # 这会把每一条发往数据库的 SQL 和参数都打印在控制台
+    com.pingyu.codematebackend.mapper: DEBUG
 
 # 在 application.yml (或 application-dev.yml) 中添加

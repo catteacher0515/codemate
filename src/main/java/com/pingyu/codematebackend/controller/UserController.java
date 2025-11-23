@@ -193,7 +193,6 @@ public class UserController {
         return BaseResponse.success(userList);
     }
 
-
     @PutMapping("/update/avatar")
     @Operation(summary = "更新用户头像", description = "上传新头像后，调用此接口将 URL 持久化到数据库")
     public BaseResponse<Boolean> updateUserAvatar(@RequestBody UserUpdateAvatarRequest request) {
@@ -226,18 +225,22 @@ public class UserController {
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "按 ID 获取单个用户", description = "根据用户 ID 获取单个用户（已脱敏）")
-    @Parameter(name = "id", description = "用户 ID", required = true)
+    @Operation(summary = "按 ID 获取单个用户", description = "根据用户ID 获取单个用户（已脱敏且包含标签）")
+    @Parameter(name = "id", description = "用户ID", required = true)
     public BaseResponse<User> getUserById(@PathVariable Long id) {
         if (id == null || id <= 0) {
             return BaseResponse.error(ErrorCode.PARAMS_ERROR, "请求参数错误");
         }
-        User user = userService.getById(id);
+
+        // 【关键修复】切换到“增强版”查询方法
+        // 这个方法会负责：1.查User表 2.查Tag关联表 3.执行脱敏
+        User user = userService.getSafetyUserById(id);
+
         if (user == null) {
             return BaseResponse.error(ErrorCode.NOT_FOUND_ERROR, "用户不存在");
         }
-        user.setUserPassword(null);
-        user.setIsDelete(null);
+
+        // (Service 已经脱敏过了，这里不需要再手动 set null)
         return BaseResponse.success(user);
     }
 }

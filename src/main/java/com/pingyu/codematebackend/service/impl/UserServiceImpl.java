@@ -8,8 +8,12 @@ import com.pingyu.codematebackend.common.ErrorCode;       // [SOP] 导入
 import com.pingyu.codematebackend.exception.BusinessException; // [SOP] 导入
 import com.pingyu.codematebackend.dto.UserUpdateDTO;
 import com.pingyu.codematebackend.mapper.UserMapper;
+import com.pingyu.codematebackend.model.Tag;
 import com.pingyu.codematebackend.model.User;
+import com.pingyu.codematebackend.model.UserTagRelation;
+import com.pingyu.codematebackend.service.TagService;
 import com.pingyu.codematebackend.service.UserService;
+import com.pingyu.codematebackend.service.UserTagRelationService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +30,7 @@ import java.sql.Time;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -45,6 +50,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Resource
     private RedisTemplate<String, Object> redisTemplate;
+
+    @Resource
+    private TagService tagService;
+
+    @Resource
+    private UserTagRelationService userTagRelationService;
 
     // 存入缓存
 //    String key = "pingyu:test:1";
@@ -102,77 +113,182 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         log.info("【方案 A】完成：“串行”导入 1000 个用户，总耗时：{} 毫秒。", cost);
     }
 
+    @Override
+    public User getSafetyUserById(Long id) {
+        // 1. 查主表
+        User user = this.baseMapper.selectById(id);
+        if (user == null) {
+            return null;
+        }
+
+        // 2. 查标签 (补全技能芯片)
+        QueryWrapper<UserTagRelation> relationQw = new QueryWrapper<>();
+        relationQw.eq("userId", id);
+        List<UserTagRelation> relations = userTagRelationService.list(relationQw);
+
+        if (!relations.isEmpty()) {
+            List<Long> tagIds = relations.stream()
+                    .map(UserTagRelation::getTagid)
+                    .collect(Collectors.toList());
+            List<Tag> tags = tagService.listByIds(tagIds);
+            List<String> tagNames = tags.stream()
+                    .map(Tag::getTagname)
+                    .collect(Collectors.toList());
+            user.setTags(tagNames);
+        } else {
+            user.setTags(new ArrayList<>());
+        }
+
+        // 3. 脱敏 (复用现有的脱敏逻辑)
+        return getSafetyUser(user);
+    }
+
     /**
      * [SOP 重构]
      * 更新当前登录用户的个人信息
      */
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public boolean updateUserInfo(UserUpdateDTO dto, Long safeUserId) {
 
-        // 1. “取出旧档案”
+        // 【探针】打印收到的包裹内容，看看 phone 和 tags 到底是不是 null
+        System.out.println("--- [侦探探针] 收到更新请求 ---");
+        System.out.println("DTO Bio: " + dto.getBio());
+        System.out.println("DTO Phone: " + dto.getPhone());
+        System.out.println("DTO Email: " + dto.getEmail());
+        System.out.println("DTO Tags: " + dto.getTags());
+        System.out.println("---------------------------");
+
+        // 1. 取出旧档案
         User originalUser = this.baseMapper.selectById(safeUserId);
         if (originalUser == null) {
-            // [SOP] 抛出异常，而不是返回 error
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在");
         }
 
-        // 2. “验证情报” (用户名查重)
-        String newUsername = dto.getUsername();
-        if (newUsername != null && !newUsername.equals(originalUser.getUsername())) {
+        // 2. 更新基础信息 (用户名、日志、邮箱、手机、性别、头像)
+        if (StringUtils.hasText(dto.getUsername()) && !dto.getUsername().equals(originalUser.getUsername())) {
+            // 查重逻辑
             QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-            queryWrapper.eq("username", newUsername);
+            queryWrapper.eq("username", dto.getUsername());
             User existUser = this.baseMapper.selectOne(queryWrapper);
-
             if (existUser != null && !existUser.getId().equals(safeUserId)) {
-                // [SOP] 抛出异常
-                throw new BusinessException(ErrorCode.USERNAME_TAKEN);
+                throw new BusinessException(ErrorCode.USERNAME_TAKEN, "该代号已被占用");
             }
-            originalUser.setUsername(newUsername);
+            originalUser.setUsername(dto.getUsername());
         }
 
-        // 3. “合并情报” (手动、安全地覆盖)
-        if (dto.getEmail() != null) {
-            originalUser.setEmail(dto.getEmail());
-        }
-        if (dto.getGender() != null) {
-            originalUser.setGender(dto.getGender());
-        }
-        if (dto.getAvatarUrl() != null) {
-            originalUser.setAvatarUrl(dto.getAvatarUrl());
-        }
+        if (dto.getBio() != null) originalUser.setBio(dto.getBio());
+        if (StringUtils.hasText(dto.getEmail())) originalUser.setEmail(dto.getEmail());
+        if (StringUtils.hasText(dto.getPhone())) originalUser.setPhone(dto.getPhone());
+        if (dto.getGender() != null) originalUser.setGender(dto.getGender());
+        if (StringUtils.hasText(dto.getAvatarUrl())) originalUser.setAvatarUrl(dto.getAvatarUrl());
 
-        // 4. “存档归案”
         boolean updateResult = this.baseMapper.updateById(originalUser) > 0;
-
         if (!updateResult) {
-            // [SOP] 兜底，万一更新失败
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "更新用户信息失败");
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "更新基础信息失败");
         }
 
-        return true; // [SOP] 成功则返回 true
+        // 3. 【核心新增】更新技能芯片 (Tags)
+        List<String> newTags = dto.getTags();
+        if (newTags != null) {
+            // A. 清理旧标签关联 (删除 user_tag_relation 中该 userId 的所有记录)
+            QueryWrapper<UserTagRelation> removeQw = new QueryWrapper<>();
+            removeQw.eq("userId", safeUserId);
+            userTagRelationService.remove(removeQw);
+
+            // B. 建立新关联
+            if (!newTags.isEmpty()) {
+                List<UserTagRelation> relationList = new ArrayList<>();
+                for (String tagName : newTags) {
+                    tagName = tagName.trim();
+                    if (!StringUtils.hasText(tagName)) continue; // 消除警告
+
+                    // b1. 查找或创建 Tag (实现“自由标签”)
+                    QueryWrapper<Tag> tagQw = new QueryWrapper<>();
+                    tagQw.eq("tagName", tagName);
+                    Tag tag = tagService.getOne(tagQw);
+
+                    Long tagId;
+                    if (tag == null) {
+                        // 创建新标签
+                        tag = new Tag();
+                        tag.setTagname(tagName);
+                        tag.setParentid(0L); // 默认为根标签_
+                        tag.setIsparent(0);
+                        tagService.save(tag);
+                        tagId = tag.getId();
+                    } else {
+                        tagId = tag.getId();
+                    }
+
+                    // b2. 创建关联对象
+                    UserTagRelation relation = new UserTagRelation();
+                    relation.setUserid(safeUserId);
+                    relation.setTagid(tagId);
+                    relationList.add(relation);
+                }
+
+
+                // c. 批量保存
+                if (!relationList.isEmpty()) {
+                    userTagRelationService.saveBatch(relationList);
+                }
+
+                // 【关键修复】清理缓存 (Cache Invalidation)
+                // 既然不知道具体影响了哪个标签搜索结果，干脆把所有标签搜索缓存都清了
+                // (生产环境不建议这么干，但开发阶段这是最稳妥的)
+                String pattern = "codemate:user:tags:*";
+                Set<String> keys = redisTemplate.keys(pattern);
+                if (keys != null && !keys.isEmpty()) {
+                    redisTemplate.delete(keys);
+                    System.out.println("--- [侦探清理] 已清除旧缓存: " + keys.size() + " 个 ---");
+                }
+
+                // 也要清理“关键词搜索”的缓存 (如果有的话)
+                String searchPattern = "codemate:user:searchtext:*";
+                Set<String> searchKeys = redisTemplate.keys(searchPattern);
+                if (searchKeys != null && !searchKeys.isEmpty()) {
+                    redisTemplate.delete(searchKeys);
+                }
+            }
+        }
+
+        return true;
     }
 
     /**
-     * [SOP 新增]
-     * 获取当前登录用户信息
+     * 获取当前登录用户信息 (查自己 - 需要看到所有隐私数据)
      */
     @Override
     public User getCurrent(Long safeUserId) {
-        // 1. (查询)
-        User originalUser = this.baseMapper.selectById(safeUserId);
-
-        // 2. (检查)
-        if (originalUser == null) {
-            // [SOP] 抛出异常
+        // 1. 查基础表
+        User user = this.baseMapper.selectById(safeUserId);
+        if (user == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "未找到当前用户");
         }
 
-        // 3. (脱敏)
-        User safeUser = this.getSafetyUser(originalUser);
+        // 2. 【修复】查标签 (补全 Tags)
+        // 这里的逻辑是：去 user_tag_relation 查关联 -> 去 tag 表查名字 -> 塞给 user
+        QueryWrapper<UserTagRelation> relationQw = new QueryWrapper<>();
+        relationQw.eq("userId", safeUserId);
+        List<UserTagRelation> relations = userTagRelationService.list(relationQw);
 
-        // 4. (返回)
-        return safeUser;
+        if (!relations.isEmpty()) {
+            List<Long> tagIds = relations.stream().map(UserTagRelation::getTagid).collect(Collectors.toList());
+            List<Tag> tags = tagService.listByIds(tagIds);
+            List<String> tagNames = tags.stream().map(Tag::getTagname).collect(Collectors.toList());
+            user.setTags(tagNames); // 填入标签
+        } else {
+            user.setTags(Collections.emptyList());
+        }
+
+        // 3. 【修复】不脱敏！直接返回！
+        // 因为是查自己，所以需要看到 phone 和 email
+        // 我们只把密码擦除即可
+        user.setUserPassword(null);
+        user.setIsDelete(null);
+
+        return user;
     }
 
     /**
@@ -268,7 +384,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     }
 
     /**
-     * 获取脱敏的用户信息
+     * 获取脱敏的用户信息 (查别人 - 必须隐藏隐私)
      */
     private User getSafetyUser(User originUser) {
         if (originUser == null) {
@@ -277,11 +393,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         User safetyUser = new User();
         BeanUtils.copyProperties(originUser, safetyUser);
 
-        // 【关键】统一脱敏
+        // 【查别人】时，必须脱敏
         safetyUser.setUserPassword(null);
-        safetyUser.setPhone(null);
-        safetyUser.setEmail(null);
+        safetyUser.setPhone(null); // 隐藏手机
+        safetyUser.setEmail(null); // 隐藏邮箱
+        safetyUser.setUserStatus(null);
+        safetyUser.setCreateTime(null);
+        safetyUser.setUpdateTime(null);
         safetyUser.setIsDelete(null);
+
+        // 注意：查别人时，如果需要显示标签，这里也应该加上查标签的逻辑(类似 getCurrent)
+        // 但为了节省性能，通常在列表页会用 V3 聚合搜索来处理标签。
+        // 这里暂时保持基础脱敏。
 
         return safetyUser;
     }
